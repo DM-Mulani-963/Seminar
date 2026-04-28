@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LPA-Offload · Interactive 3D Simulator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.11.0/math.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;600&display=swap');
+
+  :root {
+    --bg:       #080e1a;
+    --panel:    #0d1b2e;
+    --card:     #101f35;
+    --border:   #1a3050;
+    --teal:     #00bfa5;
+    --cyan:     #00e5ff;
+    --gold:     #ffd54f;
+    --red:      #ef5350;
+    --green:    #66bb6a;
+    --muted:    #4a7090;
+    --text:     #d0e8f5;
+    --white:    #ffffff;
+    --glow:     rgba(0,191,165,0.18);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; overflow: hidden; }
+
+  /* ── Layout ─────────────────────────────────── */
+  #app { display: grid; grid-template-rows: 58px 1fr 200px; grid-template-columns: 300px 1fr 300px; height: 100vh; }
+
+  /* ── Top Bar ─────────────────────────────────── */
+  #topbar {
+    grid-column: 1/-1;
+    background: linear-gradient(90deg, #050d1a 0%, #0d1b30 50%, #050d1a 100%);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+  }
+  #topbar .logo { font-family:'Syne',sans-serif; font-weight:800; font-size:1.1rem; color:var(--teal); letter-spacing:2px; }
+  #topbar .logo span { color:var(--white); }
+  #topbar .step-indicator { display:flex; gap:6px; align-items:center; }
+  .step-dot { width:8px; height:8px; border-radius:50%; background:var(--border); transition:all .3s; cursor:pointer; }
+  .step-dot.active { background:var(--teal); box-shadow:0 0 10px var(--teal); transform:scale(1.3); }
+  .step-dot.done { background:var(--muted); }
+  #topbar .paper-ref { font-family:'JetBrains Mono',monospace; font-size:.68rem; color:var(--muted); }
+
+  /* ── Left Panel ─────────────────────────────── */
+  #left-panel {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 16px;
+    display:flex; flex-direction:column; gap:14px;
+  }
+  .panel-title { font-size:.65rem; letter-spacing:3px; text-transform:uppercase; color:var(--muted); font-family:'JetBrains Mono',monospace; padding-bottom:6px; border-bottom:1px solid var(--border); }
+
+  .theory-card {
+    background:var(--card); border:1px solid var(--border); border-radius:6px;
+    padding:10px 12px; cursor:pointer; transition:all .25s;
+    border-left:3px solid transparent;
+  }
+  .theory-card:hover { border-color:var(--teal); background:#142030; }
+  .theory-card.active { border-left-color:var(--teal); background:#0e2035; }
+  .theory-card h4 { font-size:.8rem; font-weight:700; color:var(--white); margin-bottom:4px; }
+  .theory-card p { font-size:.68rem; color:var(--muted); line-height:1.4; }
+  .theory-card .step-num { font-family:'JetBrains Mono',monospace; font-size:.6rem; color:var(--teal); margin-bottom:4px; }
+
+  /* ── 3D Canvas ─────────────────────────────── */
+  #canvas-wrap {
+    position:relative; overflow:hidden;
+    background: radial-gradient(ellipse at center, #0a1c30 0%, #050d1a 100%);
+  }
+  #three-canvas { width:100%!important; height:100%!important; display:block; }
+
+  #hud {
+    position:absolute; top:14px; left:14px; right:14px;
+    display:flex; justify-content:space-between; align-items:flex-start; pointer-events:none;
+  }
+  #step-title-box {
+    background:rgba(5,13,26,.85); border:1px solid var(--border); border-radius:8px;
+    padding:10px 16px; max-width:360px; backdrop-filter:blur(8px);
+  }
+  #step-title-box h2 { font-size:1.05rem; font-weight:800; color:var(--white); margin-bottom:4px; }
+  #step-title-box p { font-size:.73rem; color:var(--text); line-height:1.5; }
+
+  #formula-box {
+    background:rgba(5,13,26,.9); border:1px solid var(--teal); border-radius:8px;
+    padding:10px 14px; max-width:300px; backdrop-filter:blur(8px);
+    font-family:'JetBrains Mono',monospace;
+  }
+  #formula-box .formula-label { font-size:.6rem; color:var(--teal); letter-spacing:2px; text-transform:uppercase; margin-bottom:6px; }
+  #formula-box .formula-main { font-size:.88rem; color:var(--cyan); line-height:1.6; }
+  #formula-box .formula-note { font-size:.65rem; color:var(--muted); margin-top:4px; }
+
+  #sim-legend {
+    position:absolute; bottom:14px; left:14px;
+    background:rgba(5,13,26,.85); border:1px solid var(--border); border-radius:6px;
+    padding:8px 12px; backdrop-filter:blur(8px); pointer-events:none;
+  }
+  #sim-legend div { display:flex; align-items:center; gap:6px; font-size:.65rem; color:var(--muted); margin-bottom:3px; }
+  #sim-legend div:last-child { margin-bottom:0; }
+  .legend-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+
+  /* ── Right Panel ─────────────────────────────── */
+  #right-panel {
+    background:var(--panel); border-left:1px solid var(--border);
+    overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px;
+  }
+
+  /* Sliders */
+  .param-group { background:var(--card); border:1px solid var(--border); border-radius:6px; padding:10px 12px; }
+  .param-group-title { font-size:.62rem; letter-spacing:2px; text-transform:uppercase; color:var(--muted); font-family:'JetBrains Mono',monospace; margin-bottom:8px; }
+  .param-row { margin-bottom:10px; }
+  .param-row:last-child { margin-bottom:0; }
+  .param-label { display:flex; justify-content:space-between; font-size:.7rem; color:var(--text); margin-bottom:4px; }
+  .param-label span { font-family:'JetBrains Mono',monospace; color:var(--teal); font-size:.7rem; }
+  input[type=range] {
+    width:100%; height:4px; border-radius:2px; appearance:none;
+    background: linear-gradient(90deg, var(--teal) var(--pct,50%), var(--border) var(--pct,50%));
+    outline:none; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb { appearance:none; width:14px; height:14px; border-radius:50%; background:var(--teal); box-shadow:0 0 8px var(--teal); cursor:pointer; }
+  input[type=range]::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:var(--teal); border:none; cursor:pointer; }
+
+  /* Stats */
+  .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .stat-cell { background:var(--card); border:1px solid var(--border); border-radius:4px; padding:7px 9px; }
+  .stat-cell .sval { font-family:'JetBrains Mono',monospace; font-size:.85rem; color:var(--teal); font-weight:600; }
+  .stat-cell .slabel { font-size:.6rem; color:var(--muted); margin-top:2px; }
+
+  /* 2D Graph */
+  #graph-canvas { width:100%; border-radius:4px; background:#060f1c; display:block; }
+
+  /* ── Bottom Bar ─────────────────────────────── */
+  #bottombar {
+    grid-column: 1/-1;
+    background: linear-gradient(180deg, #0a1520 0%, #050d1a 100%);
+    border-top: 1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between; padding:0 24px;
+    gap:16px;
+  }
+  .nav-btn {
+    font-family:'Syne',sans-serif; font-weight:700; font-size:.8rem; letter-spacing:1px;
+    padding:10px 24px; border-radius:5px; border:none; cursor:pointer; transition:all .2s;
+    text-transform:uppercase;
+  }
+  #btn-back { background:var(--card); color:var(--muted); border:1px solid var(--border); }
+  #btn-back:hover:not(:disabled) { color:var(--white); border-color:var(--muted); }
+  #btn-back:disabled { opacity:.3; cursor:not-allowed; }
+  #btn-next { background:var(--teal); color:#050d1a; }
+  #btn-next:hover { background:var(--cyan); box-shadow:0 0 20px rgba(0,229,255,.3); }
+  #btn-next:disabled { opacity:.4; cursor:not-allowed; }
+  #btn-reset { background:transparent; color:var(--muted); border:1px solid var(--border); font-size:.7rem; padding:8px 16px; border-radius:5px; cursor:pointer; font-family:'JetBrains Mono',monospace; }
+  #btn-reset:hover { color:var(--text); border-color:var(--muted); }
+  #btn-playpause { background:transparent; color:var(--green); border:1px solid var(--green); font-size:.7rem; padding:8px 14px; border-radius:5px; cursor:pointer; font-family:'JetBrains Mono',monospace; min-width:72px; }
+  #btn-playpause:hover { background:rgba(102,187,106,.1); }
+
+  .bottom-center { display:flex; align-items:center; gap:14px; flex:1; justify-content:center; }
+  .speed-row { display:flex; align-items:center; gap:8px; font-size:.65rem; color:var(--muted); font-family:'JetBrains Mono',monospace; }
+  .speed-row input { width:80px; }
+  #step-counter { font-family:'JetBrains Mono',monospace; font-size:.75rem; color:var(--muted); white-space:nowrap; }
+
+  /* ── Overlay ─────────────────────────────────── */
+  #overlay {
+    position:fixed; inset:0; background:rgba(5,13,26,.92);
+    display:flex; align-items:center; justify-content:center;
+    z-index:100; backdrop-filter:blur(6px);
+    transition:opacity .4s;
+  }
+  #overlay.hidden { opacity:0; pointer-events:none; }
+  .overlay-box {
+    background:var(--panel); border:1px solid var(--teal); border-radius:12px;
+    padding:40px 48px; max-width:560px; text-align:center;
+  }
+  .overlay-box h1 { font-size:1.8rem; font-weight:800; color:var(--teal); margin-bottom:8px; line-height:1.1; }
+  .overlay-box h3 { font-size:.95rem; color:var(--white); margin-bottom:20px; font-weight:400; }
+  .overlay-box p { font-size:.78rem; color:var(--muted); line-height:1.7; margin-bottom:28px; }
+  .overlay-box button { background:var(--teal); color:#050d1a; font-family:'Syne',sans-serif; font-weight:800; font-size:.95rem; padding:14px 40px; border:none; border-radius:6px; cursor:pointer; letter-spacing:1px; }
+  .overlay-box button:hover { background:var(--cyan); }
+  .tag-row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-bottom:24px; }
+  .tag { background:rgba(0,191,165,.12); border:1px solid rgba(0,191,165,.3); border-radius:4px; padding:4px 10px; font-size:.65rem; color:var(--teal); font-family:'JetBrains Mono',monospace; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+  /* transition fade */
+  .scene-fade { animation: sceneFade .4s ease; }
+  @keyframes sceneFade { from{opacity:0;transform:scale(.97)} to{opacity:1;transform:scale(1)} }
+</style>
+</head>
+<body>
+
+<!-- Intro Overlay -->
+<div id="overlay">
+  <div class="overlay-box">
+    <h1>LPA-Offload</h1>
+    <h3>Interactive 3D Simulator · IEEE TMC 2024</h3>
+    <div class="tag-row">
+      <span class="tag">Differential Privacy</span>
+      <span class="tag">MEC Task Offloading</span>
+      <span class="tag">Location Perturbation</span>
+      <span class="tag">Three.js + Math.js</span>
+    </div>
+    <p>Walk through 6 interactive steps covering the complete LPA-Offload framework — from MEC attack modeling to differential privacy proofs, perturbation mechanisms, and genetic algorithm offloading. Adjust parameters and see real-time 3D visualization.</p>
+    <button onclick="startSim()">▶ Launch Simulator</button>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app">
+
+  <!-- Top Bar -->
+  <div id="topbar">
+    <div class="logo">LPA<span>·Offload</span> <span style="font-size:.6rem;color:var(--muted);font-weight:400;margin-left:8px;">IEEE TMC 2024</span></div>
+    <div class="step-indicator" id="step-dots"></div>
+    <div class="paper-ref">DOI: 10.1109/TMC.2023.3254553</div>
+  </div>
+
+  <!-- Left Panel: Theory Navigation -->
+  <div id="left-panel">
+    <div class="panel-title">Simulation Steps</div>
+    <div id="theory-list"></div>
+    <div class="panel-title" style="margin-top:8px;">Key Concepts</div>
+    <div id="concepts-box" style="font-size:.68rem;color:var(--muted);line-height:1.7;"></div>
+  </div>
+
+  <!-- 3D Canvas -->
+  <div id="canvas-wrap">
+    <canvas id="three-canvas"></canvas>
+    <div id="hud">
+      <div id="step-title-box">
+        <h2 id="hud-title">—</h2>
+        <p id="hud-desc">—</p>
+      </div>
+      <div id="formula-box">
+        <div class="formula-label">Core Formula</div>
+        <div class="formula-main" id="hud-formula">—</div>
+        <div class="formula-note" id="hud-formula-note">—</div>
+      </div>
+    </div>
+    <div id="sim-legend" id="legend-box">
+      <div><span class="legend-dot" style="background:#00bfa5"></span>Mobile User / Perturbed Location</div>
+      <div><span class="legend-dot" style="background:#ef5350"></span>Untrusted MEC Server</div>
+      <div><span class="legend-dot" style="background:#ffd54f"></span>Wireless Channel / Task Flow</div>
+      <div><span class="legend-dot" style="background:#66bb6a"></span>Protected / Safe Zone</div>
+    </div>
+  </div>
+
+  <!-- Right Panel: Parameters -->
+  <div id="right-panel">
+    <div class="panel-title">Parameters</div>
+    <div id="params-container"></div>
+    <div class="panel-title">Live Stats</div>
+    <div class="stat-grid" id="stats-grid"></div>
+    <div class="panel-title" style="margin-top:4px;">Time Plot</div>
+    <canvas id="graph-canvas" height="130"></canvas>
+  </div>
+
+  <!-- Bottom Bar -->
+  <div id="bottombar">
+    <button class="nav-btn" id="btn-back" onclick="navigate(-1)" disabled>← Back</button>
+    <div class="bottom-center">
+      <button id="btn-playpause" onclick="togglePlay()">⏸ Pause</button>
+      <button id="btn-reset" onclick="resetSim()">↺ Reset</button>
+      <div class="speed-row">
+        Speed:
+        <input type="range" id="speed-slider" min="0.1" max="4" step="0.1" value="1" oninput="simSpeed=+this.value;document.getElementById('speed-val').textContent=this.value+'×'">
+        <span id="speed-val">1×</span>
+      </div>
+      <div id="step-counter">Step 1 / 6</div>
+    </div>
+    <button class="nav-btn" id="btn-next" onclick="navigate(1)">Next →</button>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  SIMULATION STATE
+// ═══════════════════════════════════════════════════════════
+let currentStep = 0;
+let isPlaying = true;
+let simSpeed = 1;
+let simTime = 0;
+let animFrame;
+let scene, camera, renderer, animMixers = [];
+
+// Graph data
+let graphData = { t:[], pl:[], cost:[] };
+const GRAPH_LEN = 200;
+
+// ── Parameters (defaults) ─────────────────────────────────
+const params = {
+  omega:    { val:0.5, min:0.1, max:1.0, step:0.05, label:'ω (privacy factor)', unit:'' },
+  epsilon:  { val:2.0, min:0.5, max:6.0, step:0.5,  label:'ε (privacy budget)', unit:'' },
+  servers:  { val:3,   min:1,   max:6,   step:1,     label:'N (server count)',   unit:'' },
+  taskSize: { val:5,   min:1,   max:10,  step:1,     label:'Task size (MB)',     unit:'MB' },
+  lambda:   { val:0.5, min:0.0, max:1.0, step:0.1,   label:'λ (delay/energy wt)',unit:'' },
+  perturbR: { val:0.5, min:0.1, max:1.0, step:0.05,  label:'R (perturb radius)', unit:'' },
+  dmin:     { val:0.3, min:0.1, max:0.8, step:0.05,  label:'d_min (leak thresh)', unit:'' },
+};
+
+// ── Step Definitions ──────────────────────────────────────
+const STEPS = [
+  {
+    id: 0,
+    title: "MEC System & Attack Model",
+    shortTitle: "System Model",
+    desc: "Mobile users offload tasks to MEC servers via wireless channels. Channel quality R_k depends on distance d_k — revealing location.",
+    formula: "d_k = [(Bn₀/p) · (2^(Rk/B) − 1)]^(1/ϑ)",
+    formulaNote: "Eq.16 · Page 5 · Attacker infers distance from task size",
+    concepts: ["Task offloading reduces computation cost", "Wireless channel quality ∝ 1/distance", "Honest-but-curious server model", "Multi-server collusion → exact coordinates"],
+    params: ['servers','taskSize','lambda'],
+    statsLabels: ['Rk (rate)','dk (dist)','Cost C','PL level'],
+    legendItems: [
+      {color:'#00bfa5', label:'Mobile User'},
+      {color:'#ef5350', label:'MEC Servers (curious)'},
+      {color:'#ffd54f', label:'Wireless channel (task flow)'},
+      {color:'#1565c0', label:'Inferred position zone'},
+    ],
+    buildScene: buildStep0,
+    updateScene: updateStep0,
+  },
+  {
+    id: 1,
+    title: "ε-Differential Privacy",
+    shortTitle: "ε-DP Theory",
+    desc: "Differential privacy ensures similar outputs for adjacent inputs. Privacy budget ε controls strength — smaller ε = stronger privacy.",
+    formula: "Pr[M(D)∈O] ≤ e^ε · Pr[M(D')∈O]",
+    formulaNote: "Def.1 · Eq.1 · Page 4 · Laplace mechanism: M(D)=f(D)+Lap(Δf/ε)",
+    concepts: ["Privacy budget ε: closer to 0 = stronger", "Global sensitivity Δf limits noise scale", "Laplace noise: M(D) = f(D) + Lap(Δf/ε)", "Adjacent datasets differ in ≤1 element"],
+    params: ['epsilon'],
+    statsLabels: ['ε budget','Noise σ','|D−D\'|','DP ratio'],
+    legendItems: [
+      {color:'#00bfa5', label:'Dataset D (real)'},
+      {color:'#00e5ff', label:'Dataset D\' (adjacent)'},
+      {color:'#ffd54f', label:'Laplace noise distribution'},
+      {color:'#66bb6a', label:'DP-protected output'},
+    ],
+    buildScene: buildStep1,
+    updateScene: updateStep1,
+  },
+  {
+    id: 2,
+    title: "Single-Server Perturbation",
+    shortTitle: "1-Server PDF",
+    desc: "The user perturbs real distance l to fake l* within [l₁,l₂] using a redesigned bounded Laplace PDF — preventing distance inference.",
+    formula: "pdf(l*|l) = (ε/2Δl)·e^(-|l*-l|/Δl)·(1/K)",
+    formulaNote: "Eq.18 · Page 6-7 · K normalises to [l₁,l₂]; Δl=l₂-l₁",
+    concepts: ["Standard Laplace spans (−∞,+∞) — impractical", "Bounded to [0, l_max] (server coverage)", "K is normalisation constant", "Satisfies ε-DP (Theorem 2)"],
+    params: ['epsilon','perturbR','dmin'],
+    statsLabels: ['Real l','Fake l*','PDF peak','PL(ε)'],
+    legendItems: [
+      {color:'#00bfa5', label:'Real user position'},
+      {color:'#ef5350', label:'Fake/perturbed position'},
+      {color:'#ffd54f', label:'Perturbation range [l₁,l₂]'},
+      {color:'#66bb6a', label:'ε-DP safe zone'},
+    ],
+    buildScene: buildStep2,
+    updateScene: updateStep2,
+  },
+  {
+    id: 3,
+    title: "Multi-Server (ε,δ)-DP",
+    shortTitle: "Multi-Server DP",
+    desc: "In multi-server scenarios, user perturbs 2D coordinates Λ=(a,b) → Λ*=(a+r·cosθ, b+r·sinθ) within radius R, satisfying (ε,δ)-DP.",
+    formula: "D_ε,R(r,θ) = (ε/2Δr)·e^(-εr/Δr) · (1/(θ₂-θ₁)·Z)",
+    formulaNote: "Eq.19 · Page 7 · Z=(1-e^-ε)/2; Δr=R; valid r∈[0,R], θ∈[θ₁,θ₂]",
+    concepts: ["2D perturbation = polar coords (r, θ)", "r ~ bounded Laplace; θ ~ Uniform[θ₁,θ₂]", "θ₁,θ₂ ensure Λ* stays in server coverage", "Theorem 3: satisfies (ε,δ)-DP"],
+    params: ['epsilon','perturbR','servers','omega'],
+    statsLabels: ['|Λ*−Λ|','δ value','R_opt','θ range'],
+    legendItems: [
+      {color:'#00bfa5', label:'Real user Λ=(a,b)'},
+      {color:'#ef5350', label:'Perturbed Λ* samples'},
+      {color:'#ffd54f', label:'Valid angle range [θ₁,θ₂]'},
+      {color:'#66bb6a', label:'Coverage intersection'},
+    ],
+    buildScene: buildStep3,
+    updateScene: updateStep3,
+  },
+  {
+    id: 4,
+    title: "Utility Maximisation & PRDA",
+    shortTitle: "PRDA Algorithm",
+    desc: "PRDA-S/M finds optimal perturbation region φ* that maximises utility U = −[(1−ω)·C + ω·PL]. KL divergence measures leakage.",
+    formula: "max U = −[(1−ω)(C_φ−C_real) + ω·PL_φ]",
+    formulaNote: "Eq.17/21 · Pages 6-8 · ω = personalised privacy factor",
+    concepts: ["ω→0: prioritise efficiency", "ω→1: prioritise privacy", "Cφ = ∫ Pr(ℓ|φ)·C dℓ (expected cost)", "PLφ = −log ∫ Q·log(Q/P) dl (KL divergence)"],
+    params: ['omega','epsilon','taskSize'],
+    statsLabels: ['Utility U','PL level','Avg Cost','ω weight'],
+    legendItems: [
+      {color:'#00bfa5', label:'High utility region'},
+      {color:'#ef5350', label:'High privacy leakage'},
+      {color:'#ffd54f', label:'Trade-off frontier'},
+      {color:'#66bb6a', label:'Optimal φ* region'},
+    ],
+    buildScene: buildStep4,
+    updateScene: updateStep4,
+  },
+  {
+    id: 5,
+    title: "Genetic Algorithm Offloading",
+    shortTitle: "GA Offloading",
+    desc: "Multi-server offloading is NP-hard. Genetic algorithm evolves chromosomes [t₁→sₖ, …] maximising utility. Compare LPA-Offload vs OFDMA vs MaxRange.",
+    formula: "Chromosome Gᵢ=[s₁,s₂,…,sₘ] → U = −[(1−ω)C+ω·PL]",
+    formulaNote: "Page 9-10 · Fig.5 · s=200, α=0.7 crossover, β=0.2 mutation",
+    concepts: ["NP-hard: makespan minimisation on parallel machines", "GA chromosomes encode task→server assignments", "Fitness = utility U = −[(1−ω)C + ω·PL]", "LPA-Offload ≈ OFDMA cost, MaxRange privacy"],
+    params: ['omega','epsilon','servers','taskSize','lambda'],
+    statsLabels: ['PL (LPA)','Cost (LPA)','vs OFDMA','vs MaxRng'],
+    legendItems: [
+      {color:'#00bfa5', label:'LPA-Offload (our method)'},
+      {color:'#ef5350', label:'OFDMA (no privacy)'},
+      {color:'#ffd54f', label:'MaxRange (max privacy)'},
+      {color:'#66bb6a', label:'Optimal chromosome'},
+    ],
+    buildScene: buildStep5,
+    updateScene: updateStep5,
+  },
+];
+
+// ═══════════════════════════════════════════════════════════
+//  THREE.JS SETUP
+// ═══════════════════════════════════════════════════════════
+function initThree() {
+  const canvas = document.getElementById('three-canvas');
+  const wrap   = document.getElementById('canvas-wrap');
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x050d1a);
+  scene.fog = new THREE.FogExp2(0x050d1a, 0.04);
+
+  camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
+  camera.position.set(8, 6, 10);
+  camera.lookAt(0, 0, 0);
+
+  // Lighting
+  const amb = new THREE.AmbientLight(0x1a2a40, 2);
+  scene.add(amb);
+  const dir = new THREE.DirectionalLight(0x00bfa5, 1.5);
+  dir.position.set(10, 15, 8);
+  dir.castShadow = true;
+  scene.add(dir);
+  const pt = new THREE.PointLight(0x00e5ff, 0.8, 40);
+  pt.position.set(-5, 8, -5);
+  scene.add(pt);
+
+  // Grid
+  const grid = new THREE.GridHelper(30, 30, 0x1a3050, 0x0d1e30);
+  grid.position.y = -0.01;
+  scene.add(grid);
+
+  // Mouse rotate
+  let isDragging=false, prevMouse={x:0,y:0}, spherical={theta:Math.PI/4, phi:Math.PI/3, r:14};
+  canvas.addEventListener('mousedown', e=>{ isDragging=true; prevMouse={x:e.clientX,y:e.clientY}; });
+  window.addEventListener('mouseup', ()=> isDragging=false);
+  window.addEventListener('mousemove', e=>{
+    if(!isDragging) return;
+    const dx=(e.clientX-prevMouse.x)*0.005, dy=(e.clientY-prevMouse.y)*0.005;
+    spherical.theta -= dx; spherical.phi = Math.max(0.2,Math.min(Math.PI/2-0.05, spherical.phi+dy));
+    camera.position.set(
+      spherical.r*Math.sin(spherical.phi)*Math.sin(spherical.theta),
+      spherical.r*Math.cos(spherical.phi),
+      spherical.r*Math.sin(spherical.phi)*Math.cos(spherical.theta)
+    );
+    camera.lookAt(0,0,0);
+    prevMouse={x:e.clientX,y:e.clientY};
+  });
+  canvas.addEventListener('wheel', e=>{
+    spherical.r = Math.max(4, Math.min(25, spherical.r + e.deltaY*0.02));
+    camera.position.setLength(spherical.r);
+    e.preventDefault();
+  }, {passive:false});
+
+  function resize(){
+    const w=wrap.clientWidth, h=wrap.clientHeight;
+    renderer.setSize(w,h,false);
+    camera.aspect=w/h; camera.updateProjectionMatrix();
+  }
+  resize();
+  new ResizeObserver(resize).observe(wrap);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SCENE BUILDERS
+// ═══════════════════════════════════════════════════════════
+let sceneObjects = [];
+function clearScene() {
+  sceneObjects.forEach(o => { scene.remove(o); if(o.geometry) o.geometry.dispose(); });
+  sceneObjects = [];
+}
+function addToScene(obj) { scene.add(obj); sceneObjects.push(obj); return obj; }
+
+function makeSphere(r,color,emissive=0x000000) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r,32,32),
+    new THREE.MeshStandardMaterial({color,emissive,emissiveIntensity:.4,roughness:.4,metalness:.3}));
+  return m;
+}
+function makeCylinder(rt,rb,h,color,emissive=0x000000) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,16),
+    new THREE.MeshStandardMaterial({color,emissive,emissiveIntensity:.3,roughness:.5,metalness:.2}));
+  return m;
+}
+function makeArrow(from,to,color,headLen=0.3){
+  const dir = new THREE.Vector3().subVectors(to,from);
+  const len = dir.length();
+  dir.normalize();
+  const arr = new THREE.ArrowHelper(dir,from,len,color,headLen,headLen*0.6);
+  return arr;
+}
+function makeRing(r,tube,color){
+  const m = new THREE.Mesh(new THREE.TorusGeometry(r,tube,16,64),
+    new THREE.MeshStandardMaterial({color,emissive:color,emissiveIntensity:.2,roughness:.5,transparent:true,opacity:.5}));
+  return m;
+}
+function makeLabel(text,pos,color='#00bfa5'){
+  // We'll use canvas texture sprites for labels
+  const canvas2 = document.createElement('canvas');
+  canvas2.width=256; canvas2.height=64;
+  const ctx=canvas2.getContext('2d');
+  ctx.fillStyle='rgba(5,13,26,0.0)';
+  ctx.fillRect(0,0,256,64);
+  ctx.font='bold 22px JetBrains Mono, monospace';
+  ctx.fillStyle=color;
+  ctx.textAlign='center';
+  ctx.fillText(text,128,38);
+  const tex=new THREE.CanvasTexture(canvas2);
+  const mat=new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false});
+  const sprite=new THREE.Sprite(mat);
+  sprite.position.copy(pos);
+  sprite.scale.set(2.5,.6,1);
+  return sprite;
+}
+
+// ── Step 0: MEC System ────────────────────────────────────
+let s0 = {};
+function buildStep0(){
+  clearScene();
+  const N = Math.round(params.servers.val);
+  // User node
+  s0.user = makeSphere(0.35, 0x00bfa5, 0x004d40);
+  s0.user.position.set(0,0.35,0);
+  addToScene(s0.user);
+  addToScene(makeLabel('User', new THREE.Vector3(0,1.2,0)));
+
+  // Server nodes
+  s0.servers=[]; s0.arrows=[]; s0.rings=[];
+  for(let i=0;i<N;i++){
+    const angle = (i/N)*Math.PI*2;
+    const dist  = 3 + params.taskSize.val*0.3;
+    const x = Math.cos(angle)*dist, z = Math.sin(angle)*dist;
+    const srv = makeSphere(0.3,0xef5350,0x7f0000);
+    srv.position.set(x,0.3,z);
+    addToScene(srv);
+    addToScene(makeLabel(`S${i+1}`,new THREE.Vector3(x,1.1,z),'#ef5350'));
+    s0.servers.push(srv);
+
+    // Coverage ring
+    const ring = makeRing(dist*0.3+0.5, 0.04, 0x1565c0);
+    ring.rotation.x=Math.PI/2;
+    ring.position.set(x,0.1,z);
+    addToScene(ring);
+    s0.rings.push(ring);
+
+    // Arrow (task flow)
+    const arr = makeArrow(
+      new THREE.Vector3(0.35*Math.cos(angle),0.35,0.35*Math.sin(angle)),
+      new THREE.Vector3(x*0.75,0.35,z*0.75),
+      0xffd54f
+    );
+    addToScene(arr); s0.arrows.push({arr,angle,dist});
+  }
+  // Inference zone
+  const infCircle = makeRing(1.0,0.04,0x1565c0);
+  infCircle.rotation.x=Math.PI/2; infCircle.position.y=0.05;
+  addToScene(infCircle); s0.infCircle=infCircle;
+}
+function updateStep0(dt){
+  simTime+=dt;
+  const N=Math.round(params.servers.val);
+  const taskS=params.taskSize.val;
+  const dist=3+taskS*0.3;
+  // Pulse user
+  const pulse=1+0.06*Math.sin(simTime*3);
+  if(s0.user) s0.user.scale.setScalar(pulse);
+  // Animate task arrows
+  s0.arrows && s0.arrows.forEach((a,i)=>{
+    if(a.arr.parent) a.arr.line.material.opacity=0.4+0.4*Math.abs(Math.sin(simTime*2+i));
+  });
+  // Stats
+  const Rk = (params.taskSize.val/10).toFixed(2);
+  const dk  = (dist).toFixed(1);
+  const C   = (params.lambda.val * taskS*0.5 + (1-params.lambda.val)*taskS*0.3).toFixed(2);
+  const PL  = (1 - 1/(1+Math.exp(-3*(params.servers.val-2)))).toFixed(3);
+  updateStats([Rk+' Mbps', dk+' m', C, PL]);
+  updateGraph(PL, C);
+}
+
+// ── Step 1: ε-DP Visualization ────────────────────────────
+let s1={};
+function buildStep1(){
+  clearScene();
+  // Two dataset spheres
+  s1.D  = makeSphere(0.5,0x00bfa5,0x004d40);
+  s1.Dp = makeSphere(0.5,0x00e5ff,0x003f5c);
+  s1.D.position.set(-2,0.5,0);
+  s1.Dp.position.set(2,0.5,0);
+  addToScene(s1.D); addToScene(s1.Dp);
+  addToScene(makeLabel('D',new THREE.Vector3(-2,1.5,0)));
+  addToScene(makeLabel("D'",new THREE.Vector3(2,1.5,0),'#00e5ff'));
+
+  // Mechanism M box
+  const box=new THREE.Mesh(new THREE.BoxGeometry(1.5,1,1.5),
+    new THREE.MeshStandardMaterial({color:0x1a3050,emissive:0x0d2040,roughness:.6,metalness:.3,transparent:true,opacity:.7}));
+  box.position.set(0,0.5,3); addToScene(box); s1.mechBox=box;
+  addToScene(makeLabel('Mechanism M',new THREE.Vector3(0,1.4,3),'#ffd54f'));
+
+  // Noise particles
+  s1.noiseParticles=[];
+  for(let i=0;i<30;i++){
+    const p=makeSphere(0.08,0xffd54f,0x5d4037);
+    p.position.set((Math.random()-.5)*4,Math.random()*2,(Math.random()-.5)*2+3);
+    p.userData={phase:Math.random()*Math.PI*2};
+    addToScene(p); s1.noiseParticles.push(p);
+  }
+
+  // Output arrows
+  addToScene(makeArrow(new THREE.Vector3(-2,0.5,0.5),new THREE.Vector3(-0.5,0.5,2.5),0x00bfa5));
+  addToScene(makeArrow(new THREE.Vector3(2,0.5,0.5),new THREE.Vector3(0.5,0.5,2.5),0x00e5ff));
+
+  // Protected output
+  s1.out=makeSphere(0.4,0x66bb6a,0x1b5e20);
+  s1.out.position.set(0,0.5,5.5); addToScene(s1.out);
+  addToScene(makeLabel('O (protected)',new THREE.Vector3(0,1.4,5.5),'#66bb6a'));
+}
+function updateStep1(dt){
+  simTime+=dt;
+  const eps=params.epsilon.val;
+  const sigma=1/eps;
+  if(s1.noiseParticles) s1.noiseParticles.forEach((p,i)=>{
+    const ph=p.userData.phase;
+    p.position.x += (Math.random()-.5)*0.02*sigma;
+    p.position.y = 1 + sigma*Math.sin(simTime*2+ph)*0.5;
+    p.position.x = Math.max(-4,Math.min(4,p.position.x));
+    const sc=0.04+0.04*sigma;
+    p.scale.setScalar(sc);
+  });
+  if(s1.mechBox) s1.mechBox.rotation.y += 0.01;
+  const noise=sigma.toFixed(3);
+  const ratio=Math.exp(eps).toFixed(2);
+  updateStats([eps.toFixed(1), noise, '≤1', ratio+'×']);
+  updateGraph(1/eps, eps*0.1);
+}
+
+// ── Step 2: Single-Server Perturbation ───────────────────
+let s2={};
+function buildStep2(){
+  clearScene();
+  // Server at origin area
+  const srv=makeSphere(0.4,0xef5350,0x7f0000);
+  srv.position.set(0,0.4,0); addToScene(srv);
+  addToScene(makeLabel('Server S',new THREE.Vector3(0,1.2,0),'#ef5350'));
+
+  // Coverage radius line
+  const R=params.perturbR.val*8+2;
+  const ring=makeRing(R,0.04,0x1565c0);
+  ring.rotation.x=Math.PI/2; ring.position.y=0.05; addToScene(ring); s2.ring=ring;
+
+  // Real user
+  s2.realUser=makeSphere(0.3,0x00bfa5,0x004d40);
+  const realDist=R*0.5;
+  s2.realUser.position.set(realDist,0.3,0);
+  addToScene(s2.realUser);
+  addToScene(makeLabel('Real l',new THREE.Vector3(realDist,1.1,0)));
+
+  // Perturbation range ring
+  s2.pertRing1=makeRing(realDist-1.0,0.03,0xffd54f);
+  s2.pertRing1.rotation.x=Math.PI/2; s2.pertRing1.position.y=0.08; addToScene(s2.pertRing1);
+  s2.pertRing2=makeRing(realDist+1.0,0.03,0xffd54f);
+  s2.pertRing2.rotation.x=Math.PI/2; s2.pertRing2.position.y=0.08; addToScene(s2.pertRing2);
+
+  // Fake user positions (samples)
+  s2.fakeSamples=[];
+  for(let i=0;i<20;i++){
+    const fake=makeSphere(0.12,0x66bb6a,0x1b5e20);
+    fake.userData={phase:Math.random()*Math.PI*2, baseR:realDist+(Math.random()-0.5)*2};
+    fake.position.set(fake.userData.baseR,0.12,0);
+    addToScene(fake); s2.fakeSamples.push(fake);
+  }
+  s2.realDist=realDist;
+}
+function updateStep2(dt){
+  simTime+=dt;
+  const eps=params.epsilon.val;
+  const R=params.perturbR.val*8+2;
+  const l=s2.realDist||4;
+  const l1=l-1, l2=l+1;
+  const Dl=l2-l1;
+
+  // Animate fake samples with bounded Laplace PDF
+  if(s2.fakeSamples) s2.fakeSamples.forEach((f,i)=>{
+    const ph=f.userData.phase;
+    // Sample from bounded laplace
+    const noise=(Math.random()-.5)*2*(Dl/eps);
+    const lStar=Math.max(l1,Math.min(l2, l+noise));
+    const angle=simTime*0.3+ph;
+    f.position.x=lStar*Math.cos(angle*0.1+ph);
+    f.position.z=lStar*Math.sin(angle*0.1+ph);
+    f.position.y=0.12;
+  });
+  if(s2.realUser) s2.realUser.position.set(l*Math.cos(simTime*0.05),0.3,l*Math.sin(simTime*0.05));
+
+  const K=1-0.5*Math.exp((l1-l)/Dl)-0.5*Math.exp(-(l2-l)/Dl);
+  const pdfPeak=(eps/(2*Dl))*(1/Math.max(0.01,K));
+  updateStats([l.toFixed(1),(l+0.3).toFixed(1),pdfPeak.toFixed(3),(1/eps).toFixed(3)]);
+  updateGraph(1/eps, eps*0.15);
+}
+
+// ── Step 3: Multi-Server 2D Perturbation ─────────────────
+let s3={};
+function buildStep3(){
+  clearScene();
+  const N=Math.round(params.servers.val);
+  const R=params.perturbR.val*4+1;
+
+  // Real user at centre
+  s3.realUser=makeSphere(0.35,0x00bfa5,0x004d40);
+  s3.realUser.position.set(0,0.35,0);
+  addToScene(s3.realUser);
+  addToScene(makeLabel('Λ=(a,b)',new THREE.Vector3(0,1.2,0)));
+
+  // Perturbation sphere
+  const pertGeo=new THREE.SphereGeometry(R,32,32);
+  const pertMat=new THREE.MeshStandardMaterial({color:0x1565c0,transparent:true,opacity:.08,wireframe:false});
+  const pertSphere=new THREE.Mesh(pertGeo,pertMat);
+  addToScene(pertSphere); s3.pertSphere=pertSphere;
+  const wire=new THREE.Mesh(pertGeo,new THREE.MeshBasicMaterial({color:0x1565c0,wireframe:true,transparent:true,opacity:.12}));
+  addToScene(wire);
+
+  // Servers
+  s3.srvPositions=[];
+  for(let i=0;i<N;i++){
+    const a=(i/N)*Math.PI*2;
+    const d=4.5;
+    const x=Math.cos(a)*d, z=Math.sin(a)*d;
+    const srv=makeSphere(0.3,0xef5350,0x7f0000);
+    srv.position.set(x,0.3,z); addToScene(srv);
+    addToScene(makeLabel(`S${i+1}`,new THREE.Vector3(x,1.1,z),'#ef5350'));
+    s3.srvPositions.push({x,z,a});
+    // Coverage ring
+    const cr=makeRing(2.5,0.04,0x1565c0);
+    cr.rotation.x=Math.PI/2; cr.position.set(x,0.05,z); addToScene(cr);
+  }
+
+  // Valid angle cone (visual)
+  s3.angleMeshes=[];
+  const theta1=-0.8, theta2=0.8;
+  for(let t=theta1;t<theta2;t+=0.1){
+    const line=new THREE.Mesh(
+      new THREE.CylinderGeometry(0.02,0.02,R,4),
+      new THREE.MeshBasicMaterial({color:0xffd54f,transparent:true,opacity:.3})
+    );
+    line.position.set(R/2*Math.cos(t),R/4,R/2*Math.sin(t));
+    line.rotation.z=Math.PI/2-t;
+    addToScene(line); s3.angleMeshes.push(line);
+  }
+
+  // Fake position samples
+  s3.fakeSamples=[];
+  for(let i=0;i<40;i++){
+    const f=makeSphere(0.1,0x66bb6a,0x1b5e20);
+    f.userData={ph:Math.random()*Math.PI*2};
+    addToScene(f); s3.fakeSamples.push(f);
+  }
+}
+function updateStep3(dt){
+  simTime+=dt;
+  const eps=params.epsilon.val;
+  const R=params.perturbR.val*4+1;
+
+  if(s3.fakeSamples) s3.fakeSamples.forEach((f,i)=>{
+    const ph=f.userData.ph;
+    const r=Math.random()*R;
+    const theta=(Math.random()*1.6-0.8)+simTime*0.05+ph;
+    f.position.x=r*Math.cos(theta);
+    f.position.z=r*Math.sin(theta);
+    f.position.y=0.1+r*0.05;
+    f.scale.setScalar(Math.max(0.3,1-r/R));
+  });
+  const Z=(1-Math.exp(-eps))/2;
+  const delta=Math.abs(1.6/1.6-1)*Math.exp(eps)*0.01;
+  updateStats([(R*0.5).toFixed(2), delta.toFixed(4),(R).toFixed(1),'±'+((0.8*180/Math.PI).toFixed(0))+'°']);
+  updateGraph(delta, R*0.1);
+}
+
+// ── Step 4: Utility Maximisation ─────────────────────────
+let s4={};
+function buildStep4(){
+  clearScene();
+  // 3D utility surface
+  const geo=new THREE.PlaneGeometry(8,8,30,30);
+  const pos=geo.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i), z=pos.getZ(i);
+    // U = −[(1−ω)(Cφ−Creal) + ω·PL]
+    // Simplified: ridge at omega=0.5
+    const omega=params.omega.val;
+    const eps=params.epsilon.val;
+    const c=(x*x+z*z)/16;
+    const pl=1/(1+Math.exp(3*(c-0.5)));
+    const u=-(1-omega)*c - omega*(1-pl);
+    pos.setY(i, u*2+2);
+  }
+  pos.needsUpdate=true; geo.computeVertexNormals();
+  const mat=new THREE.MeshStandardMaterial({
+    color:0x00bfa5,emissive:0x004d40,roughness:.5,metalness:.2,
+    side:THREE.DoubleSide,transparent:true,opacity:.7,wireframe:false
+  });
+  const surf=new THREE.Mesh(geo,mat); surf.rotation.x=-Math.PI/2;
+  addToScene(surf); s4.surf=surf;
+
+  // Optimal point
+  s4.optPt=makeSphere(0.3,0xffd54f,0x5d4037);
+  s4.optPt.position.set(0,3,0); addToScene(s4.optPt);
+  addToScene(makeLabel('φ*',new THREE.Vector3(0,4,0),'#ffd54f'));
+
+  // Axes
+  addToScene(makeArrow(new THREE.Vector3(-4,2,0),new THREE.Vector3(4,2,0),0x00e5ff));
+  addToScene(makeArrow(new THREE.Vector3(0,2,-4),new THREE.Vector3(0,2,4),0xef5350));
+  addToScene(makeLabel('Perturbation R →',new THREE.Vector3(4.5,2,0),'#00e5ff'));
+  addToScene(makeLabel('Privacy PL →',new THREE.Vector3(0,2,4.5),'#ef5350'));
+
+  // Tradeoff markers
+  s4.tradeoffs=[];
+  const cols=[0xef5350,0xffd54f,0x66bb6a,0x00bfa5];
+  for(let i=0;i<4;i++){
+    const t=makeSphere(0.15,cols[i],0);
+    const angle=(i/4)*Math.PI*2;
+    t.position.set(Math.cos(angle)*2.5, 2.5+i*0.3, Math.sin(angle)*2.5);
+    addToScene(t); s4.tradeoffs.push(t);
+  }
+}
+function updateStep4(dt){
+  simTime+=dt;
+  const omega=params.omega.val;
+  const eps=params.epsilon.val;
+  const taskS=params.taskSize.val;
+
+  // Recompute surface
+  if(s4.surf){
+    const pos=s4.surf.geometry.attributes.position;
+    for(let i=0;i<pos.count;i++){
+      const x=pos.getX(i), z=pos.getZ(i);
+      const c=(x*x+z*z)/16;
+      const pl=1/(1+Math.exp(3*(c-0.5)));
+      const u=-(1-omega)*c*taskS/10 - omega*(1-pl);
+      pos.setY(i, u*2+2);
+    }
+    pos.needsUpdate=true; s4.surf.geometry.computeVertexNormals();
+  }
+  // Move optimal point
+  const optR=Math.sqrt(omega/(1-omega+0.01))*2;
+  if(s4.optPt) s4.optPt.position.set(optR*Math.cos(simTime*0.5), 3+Math.sin(simTime*2)*0.1, optR*Math.sin(simTime*0.5));
+
+  const U=-(1-omega)*taskS*0.3 - omega*0.3;
+  const PL=(1/(1+eps)).toFixed(3);
+  const cost=(taskS*0.4*(1-omega*0.5)).toFixed(2);
+  updateStats([U.toFixed(3), PL, cost, omega.toFixed(1)]);
+  updateGraph(parseFloat(PL), parseFloat(cost)*0.1);
+}
+
+// ── Step 5: GA Offloading ─────────────────────────────────
+let s5={};
+function buildStep5(){
+  clearScene();
+  const N=Math.round(params.servers.val);
+  const tasks=Math.round(params.taskSize.val);
+
+  // Task nodes (to be assigned)
+  s5.taskNodes=[];
+  for(let i=0;i<tasks;i++){
+    const t=makeSphere(0.2,0x00e5ff,0x003f5c);
+    const angle=(i/tasks)*Math.PI*2;
+    t.position.set(Math.cos(angle)*1.5, 0.5+i*0.1, Math.sin(angle)*1.5);
+    t.userData={idx:i, targetServer:-1, phase:Math.random()*Math.PI*2};
+    addToScene(t); s5.taskNodes.push(t);
+  }
+
+  // Server nodes
+  s5.serverNodes=[];
+  for(let i=0;i<N;i++){
+    const a=(i/N)*Math.PI*2;
+    const d=4.5;
+    const srv=makeSphere(0.4,0xef5350,0x7f0000);
+    srv.position.set(Math.cos(a)*d, 0.4, Math.sin(a)*d);
+    addToScene(srv);
+    addToScene(makeLabel(`S${i+1}`,new THREE.Vector3(Math.cos(a)*d,1.3,Math.sin(a)*d),'#ef5350'));
+    s5.serverNodes.push(srv);
+  }
+
+  // Local device
+  s5.local=makeSphere(0.4,0x66bb6a,0x1b5e20);
+  s5.local.position.set(0,0.4,0); addToScene(s5.local);
+  addToScene(makeLabel('Local',new THREE.Vector3(0,1.3,0),'#66bb6a'));
+
+  // Chromosome display (top row of boxes)
+  s5.chromoBars=[];
+  for(let i=0;i<tasks;i++){
+    const bar=new THREE.Mesh(
+      new THREE.BoxGeometry(0.4,0.3,0.3),
+      new THREE.MeshStandardMaterial({color:0x1a3050,emissive:0x0d2040,roughness:.5})
+    );
+    bar.position.set(-tasks*0.25+i*0.5, 3.5, 0);
+    addToScene(bar); s5.chromoBars.push(bar);
+  }
+  addToScene(makeLabel('Best chromosome →',new THREE.Vector3(0,4.3,0),'#ffd54f'));
+
+  // Connection lines
+  s5.connections=[];
+  for(let i=0;i<tasks;i++){
+    const conn=new THREE.ArrowHelper(
+      new THREE.Vector3(0,1,0),
+      s5.taskNodes[i].position,
+      1, 0xffd54f, 0.2, 0.12
+    );
+    addToScene(conn); s5.connections.push(conn);
+  }
+
+  s5.generation=0;
+  s5.bestU=-999;
+  s5.assignment=Array.from({length:tasks},()=>Math.floor(Math.random()*(N+1)));
+}
+function updateStep5(dt){
+  simTime+=dt;
+  const omega=params.omega.val;
+  const eps=params.epsilon.val;
+  const N=Math.round(params.servers.val);
+  const tasks=Math.round(params.taskSize.val);
+  const taskS=params.taskSize.val;
+  const lambda=params.lambda.val;
+
+  // GA evolution step every 0.4s
+  if(Math.floor(simTime*2.5) > s5.generation){
+    s5.generation++;
+    // Mutate one assignment
+    const mutIdx=Math.floor(Math.random()*tasks);
+    s5.assignment[mutIdx]=Math.floor(Math.random()*(N+1));
+    // Evaluate utility
+    const PL=0.02+Math.random()*0.02;
+    const C=(lambda*taskS*0.4+(1-lambda)*taskS*0.3)*(1+Math.random()*0.2);
+    const U=-(1-omega)*C - omega*PL;
+    if(U>s5.bestU){s5.bestU=U; s5.bestAssign=[...s5.assignment];}
+  }
+
+  // Animate tasks toward assigned server
+  if(s5.taskNodes) s5.taskNodes.forEach((t,i)=>{
+    const srv=s5.assignment[i]<N ? s5.serverNodes[s5.assignment[i]] : s5.local;
+    if(!srv) return;
+    const target=srv.position;
+    const ph=t.userData.phase;
+    t.position.lerp(target, 0.02);
+    t.position.y=0.5+Math.sin(simTime*2+ph)*0.15;
+    // Update connection
+    if(s5.connections[i]){
+      const dir=new THREE.Vector3().subVectors(target,t.position).normalize();
+      const len=t.position.distanceTo(target);
+      s5.connections[i].position.copy(t.position);
+      s5.connections[i].setDirection(dir);
+      s5.connections[i].setLength(Math.max(0.1,len-0.4),0.2,0.12);
+    }
+    // Color chromosome bar
+    if(s5.chromoBars[i]){
+      const cols=[0xef5350,0x00e5ff,0xffd54f,0x66bb6a,0x9c27b0,0xff9800];
+      const c=s5.assignment[i]<N?cols[s5.assignment[i]%cols.length]:0x66bb6a;
+      s5.chromoBars[i].material.color.setHex(c);
+      s5.chromoBars[i].material.emissive.setHex(c);
+      s5.chromoBars[i].material.emissiveIntensity=.3;
+    }
+  });
+
+  // Compare algorithms
+  const PLlpa=(0.015+omega*0.01).toFixed(4);
+  const Clpa=(taskS*0.35*(1-omega*0.3)).toFixed(2);
+  const Cofdma=(taskS*0.3).toFixed(2);
+  const PLmax=(0.008).toFixed(4);
+  updateStats([PLlpa, Clpa, `≈${Cofdma}`, `PL=${PLmax}`]);
+  updateGraph(parseFloat(PLlpa), parseFloat(Clpa)*0.1);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  UI FUNCTIONS
+// ═══════════════════════════════════════════════════════════
+function updateStats(vals){
+  const cells=document.querySelectorAll('.stat-cell');
+  const labels=STEPS[currentStep].statsLabels;
+  cells.forEach((c,i)=>{
+    c.querySelector('.sval').textContent=vals[i]||'—';
+    c.querySelector('.slabel').textContent=labels[i]||'';
+  });
+}
+
+let graphHistory={pl:[],cost:[]};
+function updateGraph(pl,cost){
+  graphHistory.pl.push(pl);
+  graphHistory.cost.push(cost);
+  if(graphHistory.pl.length>GRAPH_LEN){ graphHistory.pl.shift(); graphHistory.cost.shift(); }
+
+  const cv=document.getElementById('graph-canvas');
+  const w=cv.offsetWidth||200, h=130;
+  cv.width=w; cv.height=h;
+  const ctx=cv.getContext('2d');
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle='#060f1c'; ctx.fillRect(0,0,w,h);
+
+  // Grid
+  ctx.strokeStyle='#0d1e30'; ctx.lineWidth=.5;
+  for(let i=0;i<5;i++){
+    ctx.beginPath(); ctx.moveTo(0,h*i/4); ctx.lineTo(w,h*i/4); ctx.stroke();
+  }
+
+  function drawLine(data,color){
+    if(data.length<2) return;
+    const mn=Math.min(...data)||0, mx=Math.max(...data)||1, range=mx-mn||1;
+    ctx.beginPath();
+    ctx.strokeStyle=color; ctx.lineWidth=1.5;
+    data.forEach((v,i)=>{
+      const x=i/(data.length-1)*w;
+      const y=h-(v-mn)/range*(h-10)-5;
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  }
+  drawLine(graphHistory.pl,'#ef5350');
+  drawLine(graphHistory.cost,'#00bfa5');
+
+  // Labels
+  ctx.fillStyle='#4a7090'; ctx.font='9px JetBrains Mono,monospace';
+  ctx.fillText('PL',6,12);
+  ctx.fillStyle='#00bfa5';
+  ctx.fillText('Cost',w-35,12);
+}
+
+function buildUI(){
+  // Theory cards
+  const list=document.getElementById('theory-list');
+  list.innerHTML='';
+  STEPS.forEach((s,i)=>{
+    const card=document.createElement('div');
+    card.className='theory-card'+(i===currentStep?' active':'')+(i<currentStep?' done':'');
+    card.innerHTML=`<div class="step-num">STEP ${i+1}</div><h4>${s.shortTitle}</h4><p>${s.title}</p>`;
+    card.onclick=()=>goToStep(i);
+    list.appendChild(card);
+  });
+
+  // Step dots
+  const dots=document.getElementById('step-dots');
+  dots.innerHTML='';
+  STEPS.forEach((_,i)=>{
+    const d=document.createElement('div');
+    d.className='step-dot'+(i===currentStep?' active':i<currentStep?' done':'');
+    d.onclick=()=>goToStep(i);
+    dots.appendChild(d);
+  });
+
+  // Params
+  buildParams();
+
+  // Stats
+  const sg=document.getElementById('stats-grid');
+  sg.innerHTML='';
+  STEPS[currentStep].statsLabels.forEach(l=>{
+    sg.innerHTML+=`<div class="stat-cell"><div class="sval">—</div><div class="slabel">${l}</div></div>`;
+  });
+
+  // Concepts
+  const step=STEPS[currentStep];
+  document.getElementById('concepts-box').innerHTML=step.concepts.map(c=>`• ${c}`).join('<br>');
+
+  // HUD
+  document.getElementById('hud-title').textContent=step.title;
+  document.getElementById('hud-desc').textContent=step.desc;
+  document.getElementById('hud-formula').textContent=step.formula;
+  document.getElementById('hud-formula-note').textContent=step.formulaNote;
+
+  // Nav
+  document.getElementById('btn-back').disabled=currentStep===0;
+  document.getElementById('btn-next').disabled=currentStep===STEPS.length-1;
+  document.getElementById('step-counter').textContent=`Step ${currentStep+1} / ${STEPS.length}`;
+}
+
+function buildParams(){
+  const container=document.getElementById('params-container');
+  container.innerHTML='';
+  const step=STEPS[currentStep];
+
+  const grp=document.createElement('div');
+  grp.className='param-group';
+  grp.innerHTML=`<div class="param-group-title">Active Parameters</div>`;
+
+  step.params.forEach(key=>{
+    const p=params[key];
+    const pct=((p.val-p.min)/(p.max-p.min)*100)+'%';
+    const row=document.createElement('div');
+    row.className='param-row';
+    row.innerHTML=`
+      <div class="param-label">${p.label} <span id="pv-${key}">${p.val}${p.unit}</span></div>
+      <input type="range" id="sl-${key}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.val}" style="--pct:${pct}">
+    `;
+    grp.appendChild(row);
+  });
+  container.appendChild(grp);
+
+  // Attach listeners after DOM insertion
+  step.params.forEach(key=>{
+    const sl=document.getElementById(`sl-${key}`);
+    if(!sl) return;
+    sl.addEventListener('input',()=>{
+      params[key].val=+sl.value;
+      document.getElementById(`pv-${key}`).textContent=sl.value+params[key].unit;
+      const pct=((+sl.value-params[key].min)/(params[key].max-params[key].min)*100)+'%';
+      sl.style.setProperty('--pct',pct);
+      // Rebuild scene on key param change
+      STEPS[currentStep].buildScene();
+    });
+  });
+}
+
+function goToStep(idx){
+  if(idx<0||idx>=STEPS.length) return;
+  currentStep=idx;
+  simTime=0;
+  graphHistory={pl:[],cost:[]};
+  buildUI();
+  STEPS[currentStep].buildScene();
+  // Fade
+  document.getElementById('canvas-wrap').classList.remove('scene-fade');
+  void document.getElementById('canvas-wrap').offsetWidth;
+  document.getElementById('canvas-wrap').classList.add('scene-fade');
+}
+function navigate(dir){ goToStep(currentStep+dir); }
+
+function togglePlay(){
+  isPlaying=!isPlaying;
+  document.getElementById('btn-playpause').textContent=isPlaying?'⏸ Pause':'▶ Play';
+}
+function resetSim(){
+  simTime=0;
+  graphHistory={pl:[],cost:[]};
+  // Reset params to defaults
+  Object.entries(params).forEach(([k,p])=>{
+    const defaults={omega:.5,epsilon:2,servers:3,taskSize:5,lambda:.5,perturbR:.5,dmin:.3};
+    p.val=defaults[k]||p.val;
+    const sl=document.getElementById(`sl-${k}`);
+    if(sl){sl.value=p.val; const pct=((p.val-p.min)/(p.max-p.min)*100)+'%'; sl.style.setProperty('--pct',pct);}
+    const pv=document.getElementById(`pv-${k}`);
+    if(pv) pv.textContent=p.val+p.unit;
+  });
+  STEPS[currentStep].buildScene();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER LOOP
+// ═══════════════════════════════════════════════════════════
+let lastT=0;
+function renderLoop(t){
+  animFrame=requestAnimationFrame(renderLoop);
+  const dt=Math.min((t-lastT)/1000, 0.05)*simSpeed;
+  lastT=t;
+  if(isPlaying) STEPS[currentStep].updateScene(dt);
+  renderer.render(scene,camera);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════
+function startSim(){
+  document.getElementById('overlay').classList.add('hidden');
+  initThree();
+  buildUI();
+  STEPS[0].buildScene();
+  requestAnimationFrame(t=>{ lastT=t; renderLoop(t); });
+}
+</script>
+</body>
+</html>
